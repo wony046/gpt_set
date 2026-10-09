@@ -12,6 +12,7 @@ import stat
 import sys
 import tempfile
 import tomllib
+import unicodedata
 import uuid
 from dataclasses import dataclass, field
 from typing import Any, Iterable, TextIO
@@ -33,7 +34,8 @@ class Change:
 @dataclass
 class Plan:
     changes: list[Change] = field(default_factory=list)
-    messages: list[str] = field(default_factory=list)
+    # (상태, 종류, 항목) 형식으로 보관해 상태 표와 한 줄 출력에 함께 사용한다.
+    messages: list[tuple[str, str, str]] = field(default_factory=list)
     watched: dict[Path, tuple[Path, bytes | None]] = field(default_factory=dict)
     boundaries: set[Path] = field(default_factory=set)
 
@@ -212,12 +214,13 @@ def make_plan(repo: Path, home: Path, codex_home: Path, mode: str) -> Plan:
         original = observe(plan, source, repo, required=True)
         installed = observe(plan, live, live_boundary)
         label = str(source.relative_to(repo)).replace("\\", "/")
+        kind = "skill" if live_boundary == skills_home else "instruction"
         if installed == original:
-            plan.messages.append(f"SAME {label}")
+            plan.messages.append(("SAME", kind, label))
         elif installed is None:
-            plan.messages.append(f"MISSING {label}")
+            plan.messages.append(("MISSING", kind, label))
         else:
-            plan.messages.append(f"DIFFERENT {label}")
+            plan.messages.append(("DIFFERENT", kind, label))
         if mode == "install" and installed != original:
             plan.changes.append(Change(live, live_boundary, original, installed, backup_relative))
         elif mode == "pull" and installed is not None and installed != original:
@@ -232,18 +235,18 @@ def make_plan(repo: Path, home: Path, codex_home: Path, mode: str) -> Plan:
     updates: list[tuple[tuple[str, ...], Any]] = []
     managed = list(leaves(shared))
     if not managed:
-        plan.messages.append("NO SHARED SETTINGS home/codex/config.shared.toml")
+        plan.messages.append(("NO SHARED SETTINGS", "config", "home/codex/config.shared.toml"))
     for key_path, desired in managed:
         current = lookup(live, key_path)
         label = "config:" + ".".join(key_path)
         if current is MISSING:
-            plan.messages.append(f"MISSING {label}")
+            plan.messages.append(("MISSING", "config", label))
             if mode == "install":
                 updates.append((key_path, desired))
         elif equal(desired, current):
-            plan.messages.append(f"SAME {label}")
+            plan.messages.append(("SAME", "config", label))
         else:
-            plan.messages.append(f"DIFFERENT {label}")
+            plan.messages.append(("DIFFERENT", "config", label))
             if mode == "install":
                 updates.append((key_path, desired))
             elif mode == "pull":
@@ -306,26 +309,179 @@ def apply_plan(plan: Plan, home: Path, output: TextIO) -> None:
         print(f"UPDATED {change.path}", file=output)
 
 
-def run(repo: Path, home: Path, codex_home: Path, mode: str, output: TextIO = sys.stdout) -> int:
-    plan = make_plan(repo, home, codex_home, mode)
-    print(f"Repository: {absolute(repo)}", file=output)
-    print(f"User home: {absolute(home)}", file=output)
-    print(f"Codex home: {absolute(codex_home)}", file=output)
-    print(f"Skills: {absolute(home) / '.agents' / 'skills'}", file=output)
-    for message in plan.messages:
-        print(message, file=output)
-    if mode == "status":
-        print("Status only; no files were changed.", file=output)
+# 콘솔 인코딩과 무관하게 깨지지 않도록 ASCII 문자만 사용한다.
+BANNER = r"""
+   __________  ______   _____ ____________
+  / ____/ __ \/_  __/  / ___// ____/_  __/
+ / / __/ /_/ / / /     \__ \/ __/   / /
+/ /_/ / ____/ / /     ___/ / /___  / /
+\____/_/     /_/     /____/_____/ /_/
+"""
+
+
+def width(text: str) -> int:
+    # 한글처럼 두 칸을 차지하는 문자가 경로에 있어도 열을 맞춘다.
+    return sum(2 if unicodedata.east_asian_width(char) in "WF" else 1 for char in text)
+
+
+def table(headers: list[str], rows: list[list[str]]) -> list[str]:
+    """ASCII 테두리로 열 너비를 맞춘 표의 각 줄을 만든다."""
+    widths = [max(width(cell) for cell in column) for column in zip(headers, *rows)]
+
+    def line(cells: list[str]) -> str:
+        return "| " + " | ".join(cell + " " * (size - width(cell)) for cell, size in zip(cells, widths)) + " |"
+
+    border = "+" + "+".join("-" * (size + 2) for size in widths) + "+"
+    return [border, line(headers), border.replace("-", "="), *(line(row) for row in rows), border]
+
+
+def print_status(plan: Plan, repo: Path, home: Path, codex_home: Path, output: TextIO) -> None:
+    print(BANNER, file=output)
+    targets = [
+        ["Repository", str(absolute(repo))],
+        ["User home", str(absolute(home))],
+        ["Codex home", str(absolute(codex_home))],
+        ["Skills", str(absolute(home) / ".agents" / "skills")],
+    ]
+    for line in table(["Target", "Path"], targets):
+        print(line, file=output)
+    print(file=output)
+    rows = [[str(number), *message] for number, message in enumerate(plan.messages, 1)]
+    for line in table(["#", "State", "Kind", "Item"], rows):
+        print(line, file=output)
+    counts = {state: sum(message[0] == state for message in plan.messages) for state in ("SAME", "DIFFERENT", "MISSING")}
+    print(file=output)
+    print("Summary: " + ", ".join(f"{count} {state.lower()}" for state, count in counts.items()), file=output)
+
+
+# (실행할 모드, 표시 이름, 설명) 순서이며 모드가 None이면 변경 없이 종료한다.
+MENU: list[tuple[str | None, str, str]] = [
+    ("install", "Push", "repository -> installed copies (overwritten files are backed up)"),
+    ("pull", "Pull", "installed copies -> repository (overwritten files are backed up)"),
+    (None, "Exit", "leave without changes"),
+]
+
+
+def enable_ansi() -> None:
+    # 구형 Windows 콘솔도 커서 이동과 색상 제어 문자를 해석하도록 설정한다.
+    if os.name != "nt":
+        return
+    import ctypes
+
+    kernel32 = ctypes.windll.kernel32
+    handle = kernel32.GetStdHandle(-11)
+    console_mode = ctypes.c_uint32()
+    if kernel32.GetConsoleMode(handle, ctypes.byref(console_mode)):
+        kernel32.SetConsoleMode(handle, console_mode.value | 0x0004)
+
+
+def read_key() -> str:
+    """방향키, Enter, Esc를 운영체제와 무관한 이름으로 읽는다."""
+    if os.name == "nt":
+        import msvcrt
+
+        key = msvcrt.getwch()
+        if key in ("\x00", "\xe0"):
+            return {"H": "up", "P": "down"}.get(msvcrt.getwch(), "")
+        return {"\r": "enter", "\x1b": "escape", "\x03": "escape"}.get(key, key)
+    import select
+    import termios
+    import tty
+
+    descriptor = sys.stdin.fileno()
+    saved = termios.tcgetattr(descriptor)
+    try:
+        tty.setraw(descriptor)
+        key = os.read(descriptor, 1).decode(errors="ignore")
+        if key == "\x1b":
+            # Esc 단독 입력과 방향키 시퀀스를 짧은 대기 시간으로 구분한다.
+            if not select.select([descriptor], [], [], 0.05)[0]:
+                return "escape"
+            sequence = os.read(descriptor, 2).decode(errors="ignore")
+            return {"[A": "up", "[B": "down", "OA": "up", "OB": "down"}.get(sequence, "")
+        return {"\r": "enter", "\n": "enter", "\x03": "escape"}.get(key, key)
+    finally:
+        termios.tcsetattr(descriptor, termios.TCSADRAIN, saved)
+
+
+def choose_direction(output: TextIO, read: Any = read_key) -> str | None:
+    """방향키로 동기화 방향을 고르고, 취소하면 None을 반환한다."""
+    enable_ansi()
+    index = 0
+    print(file=output)
+    print("Choose a sync direction:", file=output)
+    drawn = 0
+    while True:
+        lines = []
+        for position, (_, name, detail) in enumerate(MENU):
+            text = f"{'>' if position == index else ' '} {position + 1}. {name:<4}  {detail}"
+            lines.append(f"\x1b[36m{text}\x1b[0m" if position == index else text)
+        lines += ["", "Up/Down to move, Enter to select, 1-3 to pick, Esc to exit"]
+        # 이전에 그린 메뉴 위로 커서를 올려 같은 자리에 다시 그린다.
+        if drawn:
+            output.write(f"\x1b[{drawn}A")
+        output.write("".join(f"\x1b[2K{line}\n" for line in lines))
+        output.flush()
+        drawn = len(lines)
+        key = read()
+        if key in ("up", "k"):
+            index = (index - 1) % len(MENU)
+        elif key in ("down", "j"):
+            index = (index + 1) % len(MENU)
+        elif key == "enter":
+            return MENU[index][0]
+        elif key in {str(number) for number in range(1, len(MENU) + 1)}:
+            return MENU[int(key) - 1][0]
+        elif key in ("escape", "q"):
+            return None
+
+
+def run(
+    repo: Path,
+    home: Path,
+    codex_home: Path,
+    mode: str,
+    output: TextIO = sys.stdout,
+    read: Any = None,
+) -> int:
+    if mode in ("status", "menu"):
+        print_status(make_plan(repo, home, codex_home, "status"), repo, home, codex_home, output)
+        if mode == "status":
+            print("Status only; no files were changed.", file=output)
+            return 0
+        # 키 입력을 받을 수 없는 환경에서는 묻지 않고 상태만 보여 준다.
+        if read is None and not (sys.stdin.isatty() and output.isatty()):
+            print("No interactive terminal; use --push or --pull to apply changes.", file=output)
+            print("Status only; no files were changed.", file=output)
+            return 0
+        selected = choose_direction(output, read or read_key)
+        if selected is None:
+            print("Exited; no files were changed.", file=output)
+            return 0
+        print(file=output)
+        mode = selected
+        plan = make_plan(repo, home, codex_home, mode)
     else:
-        apply_plan(plan, home, output)
-        print(f"Complete: {len(plan.changes)} file(s) updated.", file=output)
+        plan = make_plan(repo, home, codex_home, mode)
+        print(f"Repository: {absolute(repo)}", file=output)
+        print(f"User home: {absolute(home)}", file=output)
+        print(f"Codex home: {absolute(codex_home)}", file=output)
+        print(f"Skills: {absolute(home) / '.agents' / 'skills'}", file=output)
+        for message in plan.messages:
+            print(f"{message[0]} {message[2]}", file=output)
+    apply_plan(plan, home, output)
+    print(f"Complete: {len(plan.changes)} file(s) updated.", file=output)
     return 0
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Synchronize personal Codex instructions, skills, and declared settings.")
+    parser = argparse.ArgumentParser(
+        description="Synchronize personal Codex instructions, skills, and declared settings.",
+        epilog="Without an action, show the status table and choose Push, Pull, or Exit with the arrow keys.",
+    )
     actions = parser.add_mutually_exclusive_group()
     actions.add_argument("--status", action="store_true", help="Show managed differences without writing files.")
+    actions.add_argument("--push", action="store_true", help="Install managed files and merge declared settings without asking.")
     actions.add_argument("--pull", action="store_true", help="Copy existing managed files and declared settings back to the repository.")
     parser.add_argument("--home", type=Path, default=Path.home(), help="User home for skills and backups (default: current user home).")
     parser.add_argument("--codex-home", type=Path, help="Codex home; overrides CODEX_HOME and HOME/.codex.")
@@ -333,7 +489,7 @@ def main(argv: list[str] | None = None) -> int:
     home = absolute(arguments.home)
     codex_home = absolute(arguments.codex_home or os.environ.get("CODEX_HOME") or home / ".codex")
     repo = Path(__file__).absolute().parent.parent
-    mode = "status" if arguments.status else "pull" if arguments.pull else "install"
+    mode = "status" if arguments.status else "pull" if arguments.pull else "install" if arguments.push else "menu"
     try:
         return run(repo, home, codex_home, mode)
     except (SyncError, OSError, ValueError) as exc:

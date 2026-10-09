@@ -6,10 +6,11 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 
 if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
   cat <<'USAGE'
-Usage: bash bootstrap/sync-gpt.sh [--status | --pull] [--home PATH] [--codex-home PATH]
+Usage: bash bootstrap/sync-gpt.sh [--status | --push | --pull] [--home PATH] [--codex-home PATH]
 
-Default: install managed instructions and skills, then merge declared shared settings.
---status: compare only. --pull: collect existing managed files and declared settings.
+Default: show the status table, then choose Push, Pull, or Exit with the arrow keys.
+--status: compare only. --push: install managed instructions and skills, then merge declared shared settings.
+--pull: collect existing managed files and declared settings.
 Requires Python 3.11+. GPT_SET_PYTHON can select an explicit Python executable.
 USAGE
   exit 0

@@ -80,21 +80,28 @@ bash bootstrap/sync-gpt.sh --status --codex-home "$HOME/.codex-personal"
 
 ## 3. 설치
 
-대상 경로와 차이를 확인한 뒤 기본 실행으로 설치합니다.
+인자 없이 실행하면 대상 경로와 차이를 표로 보여 준 뒤 동기화 방향을 묻습니다. 메뉴에서 `Push`를 고르면 설치합니다.
 
 **Windows · PowerShell**
 
 ```powershell
 .\bootstrap\sync-gpt.ps1
-.\bootstrap\sync-gpt.ps1 -Status
 ```
 
 **macOS·Linux · Bash**
 
 ```bash
 bash bootstrap/sync-gpt.sh
-bash bootstrap/sync-gpt.sh --status
 ```
+
+| 키 | 동작 |
+|---|---|
+| `↑` / `↓` | 항목 이동 |
+| `Enter` | 선택한 항목 실행 |
+| `1` ~ `3` | 해당 번호의 항목을 바로 실행 |
+| `Esc` | 변경 없이 종료 |
+
+키 입력을 받을 수 없는 환경(파이프, CI 등)에서는 메뉴를 띄우지 않고 상태 표만 출력합니다. 이런 환경이나 스크립트에서 설치하려면 `-Push`(`--push`)를 명시합니다.
 
 공통 지침은 원본 `AGENTS.template.md`를 설치본 `AGENTS.md`로 복사합니다. `korean_style.md`도 같은 Codex 홈에 복사합니다. 별도 프로필을 지정해도 두 파일은 함께 설치됩니다. 스킬은 원본에 있는 파일만 해당 사용자 스킬 폴더로 복사합니다.
 
@@ -160,7 +167,7 @@ bash bootstrap/sync-gpt.sh --pull
 py -3 -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r .\bootstrap\requirements.txt
 .\bootstrap\sync-gpt.ps1 -Status -PythonExecutable .\.venv\Scripts\python.exe
-.\bootstrap\sync-gpt.ps1 -PythonExecutable .\.venv\Scripts\python.exe
+.\bootstrap\sync-gpt.ps1 -Push -PythonExecutable .\.venv\Scripts\python.exe
 ```
 
 **macOS·Linux · Bash**
@@ -170,7 +177,7 @@ python3 -m venv .venv
 source .venv/bin/activate
 python3 -m pip install -r bootstrap/requirements.txt
 bash bootstrap/sync-gpt.sh --status
-bash bootstrap/sync-gpt.sh
+bash bootstrap/sync-gpt.sh --push
 deactivate
 ```
 
@@ -190,8 +197,9 @@ deactivate
 
 | PowerShell | Bash | 의미 |
 |---|---|---|
-| 없음 | 없음 | 원본을 설치본으로 반영 |
+| 없음 | 없음 | 차이 표 출력 후 Push, Pull, Exit 중 선택 |
 | `-Status` | `--status` | 차이와 대상 경로 확인, 쓰기 없음 |
+| `-Push` | `--push` | 묻지 않고 원본을 설치본으로 반영 |
 | `-Pull` | `--pull` | 설치본 변경을 기존 원본에 회수 |
 | `-UserHome <경로>` | `--home <경로>` | 사용자 홈 기준 변경 |
 | `-CodexHome <경로>` | `--codex-home <경로>` | Codex 홈 직접 지정 |

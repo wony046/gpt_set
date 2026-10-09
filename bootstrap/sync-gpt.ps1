@@ -2,6 +2,7 @@
 [CmdletBinding()]
 param(
     [switch]$Status,
+    [switch]$Push,
     [switch]$Pull,
     [switch]$Help,
     [string]$UserHome,
@@ -12,13 +13,15 @@ param(
 $ErrorActionPreference = 'Stop'
 
 if ($Help) {
-    Write-Output 'Usage: sync-gpt.ps1 [-Status | -Pull] [-UserHome PATH] [-CodexHome PATH] [-PythonExecutable PATH]'
-    Write-Output 'Default: install managed instructions and skills, then merge declared shared settings.'
-    Write-Output '-Status: compare only. -Pull: collect existing managed files and declared settings.'
+    Write-Output 'Usage: sync-gpt.ps1 [-Status | -Push | -Pull] [-UserHome PATH] [-CodexHome PATH] [-PythonExecutable PATH]'
+    Write-Output 'Default: show the status table, then choose Push, Pull, or Exit with the arrow keys.'
+    Write-Output '-Status: compare only. -Push: install managed instructions and skills, then merge declared shared settings.'
+    Write-Output '-Pull: collect existing managed files and declared settings.'
     exit 0
 }
-if ($Status -and $Pull) {
-    Write-Error '-Status and -Pull cannot be used together.' -ErrorAction Continue
+# 동기화 방향 옵션은 하나만 허용한다.
+if (@($Status, $Push, $Pull | Where-Object { $_ }).Count -gt 1) {
+    Write-Error '-Status, -Push, and -Pull cannot be used together.' -ErrorAction Continue
     exit 2
 }
 
@@ -58,6 +61,7 @@ try {
     $engine = Join-Path $PSScriptRoot 'sync_gpt.py'
     $engineArguments = @('-X', 'utf8', $engine)
     if ($Status) { $engineArguments += '--status' }
+    if ($Push) { $engineArguments += '--push' }
     if ($Pull) { $engineArguments += '--pull' }
     if ($UserHome) { $engineArguments += @('--home', $UserHome) }
     if ($CodexHome) { $engineArguments += @('--codex-home', $CodexHome) }
