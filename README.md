@@ -154,7 +154,7 @@ bash bootstrap/sync-gpt.sh
 - `home/codex/config.shared.toml`에 여러 컴퓨터에서 공유할 항목만 작성합니다. 
 - 값이 있는 TOML 설정을 병합하거나 회수할 때는 `bootstrap/requirements.txt`의 `tomlkit` 패키지가 추가로 필요합니다.
 
-설정은 TOML 구조로 읽어 병합합니다. 로컬 설정 전체를 원본으로 복사하지 않습니다. 선택 의존성 설치는 [설치 안내](docs/setup.md#공유-설정을-추가할-때의-선택-의존성)를 참고하세요.
+설정은 TOML 구조로 읽어 병합합니다. 로컬 설정 전체를 원본으로 복사하지 않습니다. 선택 의존성 설치는 [설치 안내](docs/setup.md#공유-설정을-추가할-때의-선택-의존성)를 참고하세요.....
 
 ## 참고 문서
 
