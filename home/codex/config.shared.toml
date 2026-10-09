@@ -1,0 +1,5 @@
+# 여러 컴퓨터에서 공유할 Codex 설정만 여기에 선언한다.
+# 현재는 공유 값을 지정하지 않았으므로 설치할 때 config.toml을 변경하지 않는다.
+# 모델과 노력 수준 및 컴퓨터별 경로는 각 컴퓨터에서 관리한다.
+# 값을 추가하기 전에 공식 설정 문서에서 키와 적용 범위를 확인한다.
+# https://learn.chatgpt.com/docs/config-file/config-basic

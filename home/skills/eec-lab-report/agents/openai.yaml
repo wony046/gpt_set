@@ -1,0 +1,4 @@
+interface:
+  display_name: "전기전자회로 실험 보고서 작성"
+  short_description: "개인 문체와 Word 서식을 적용해 전기전자회로 실험 보고서를 작성하고 검토합니다."
+  default_prompt: "$eec-lab-report를 사용해 제공한 실습 자료와 현재 문서를 기준으로 요청한 보고서 부분을 작성해 주세요."
